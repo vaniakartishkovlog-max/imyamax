@@ -1,19 +1,17 @@
 import asyncio
 import random
 import string
-import threading
 import os
 from typing import Dict
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from flask import Flask
 
 # ====== Настройки ======
-TOKEN = os.getenv("BOT_TOKEN")  # Environment Variable в Render
+TOKEN = os.getenv("BOT_TOKEN")  # Вставь свой токен в Environment Variables
 ADMIN_IDS = set()
 # ========================
 
@@ -29,7 +27,6 @@ class DealStates(StatesGroup):
     waiting_amount = State()
     waiting_description = State()
 
-# --- Keyboards ---
 main_kb = types.ReplyKeyboardMarkup(
     keyboard=[
         [types.KeyboardButton(text="Управление реквизитами"), types.KeyboardButton(text="Создать сделку")],
@@ -53,11 +50,11 @@ async def start(message: types.Message):
     parts = text.split()
     if len(parts) > 1 and parts[1].startswith("deal"):
         deal_id = parts[1][4:]
-        deal = deals.get(deal_id)
-        if not deal:
+        if deal_id not in deals:
             await message.answer("❌ Сделка не найдена.")
             return
 
+        deal = deals[deal_id]
         if message.from_user.id == deal["seller_id"]:
             await message.answer("❌ Вы не можете зайти в свою сделку как покупатель.")
             return
@@ -95,17 +92,13 @@ async def start(message: types.Message):
         )
         return
 
-    await message.answer_photo(
-        photo="https://playerok.com/og_playerok.png",
-        caption=(
-            "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
-            "💼 Покупайте и продавайте всё, что угодно – безопасно с минимальной комиссией!\n"
-            "Выберите нужный раздел ниже:"
-        ),
+    await message.answer(
+        "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
+        "💼 Покупайте и продавайте всё, что угодно – безопасно с минимальной комиссией!\n"
+        "Выберите нужный раздел ниже:",
         reply_markup=main_kb
     )
 
-# ---- Команды ----
 @dp.message(F.text == "Поддержка")
 async def support(message: types.Message):
     await message.answer("🆘 Поддержка: @PlayerokOTC")
@@ -130,8 +123,10 @@ async def set_currency(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(currency=chosen)
-    await message.answer(f"✅ Валюта вашего кошелька установлена: {chosen}\nВведите реквизиты вашего кошелька:",
-                         reply_markup=types.ReplyKeyboardRemove())
+    await message.answer(
+        f"✅ Валюта вашего кошелька установлена: {chosen}\nВведите реквизиты вашего кошелька:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
     await state.set_state(DealStates.waiting_wallet)
 
 @dp.message(DealStates.waiting_wallet)
@@ -152,12 +147,13 @@ async def create_deal(message: types.Message, state: FSMContext):
 
 @dp.message(DealStates.waiting_amount)
 async def deal_amount(message: types.Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    text = message.text.strip()
+    if not text.isdigit():
         await message.answer("❌ Введите сумму только цифрами.")
         return
-    await state.update_data(amount=message.text.strip())
+    await state.update_data(amount=text)
     currency = user_wallets[message.from_user.id]["currency"]
-    await message.answer(f"📝 Укажите, что вы предлагаете в этой сделке за {message.text.strip()} {currency}:")
+    await message.answer(f"📝 Укажите, что вы предлагаете в этой сделке за {text} {currency}:")
     await state.set_state(DealStates.waiting_description)
 
 @dp.message(DealStates.waiting_description)
@@ -184,20 +180,28 @@ async def deal_description(message: types.Message, state: FSMContext):
     }
 
     link = f"https://t.me/PlayerokOTC_Robot?start=deal{deal_id}"
-    await message.answer(f"✅ Сделка создана!\n\n💰 Сумма: {amount} {wallet_info['currency']}\n"
-                         f"📜 Описание: {desc}\n🔗 Ссылка для покупателя: {link}", reply_markup=main_kb)
+    await message.answer(
+        f"✅ Сделка создана!\n\n"
+        f"💰 Сумма: {amount} {wallet_info['currency']}\n"
+        f"📜 Описание: {desc}\n"
+        f"🔗 Ссылка для покупателя: {link}",
+        reply_markup=main_kb
+    )
     await state.clear()
 
-# ================== Flask ==================
-app = Flask(__name__)
+@dp.callback_query(F.data.startswith("buyer_confirm_"))
+async def buyer_confirm(callback: types.CallbackQuery):
+    deal_id = callback.data.split("buyer_confirm_")[1]
+    await callback.answer()
+    await callback.message.edit_reply_markup(None)
+    msg = await callback.message.answer("💳 Оплата проверяется...")
+    await asyncio.sleep(5)
+    await msg.edit_text("❌ Оплата не найдена.")
 
-@app.route("/")
-def home():
-    return "✅ Bot is alive"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+@dp.callback_query(F.data.startswith("buyer_exit_"))
+async def buyer_exit(callback: types.CallbackQuery):
+    await callback.message.edit_reply_markup(None)
+    await callback.message.answer("🚪 Вы вышли из сделки.")
 
 # ================== Запуск ==================
 async def main():
@@ -205,5 +209,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
     asyncio.run(main())
