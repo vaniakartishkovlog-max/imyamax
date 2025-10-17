@@ -10,10 +10,8 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ====== Настройки ======
-TOKEN = os.getenv("BOT_TOKEN")  # Токен в переменных окружения Fly.io
+TOKEN = os.getenv("BOT_TOKEN")  # Fly.io environment variable
 ADMIN_IDS = set()
-# ========================
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -43,61 +41,10 @@ currency_kb = types.ReplyKeyboardMarkup(
 def gen_deal_id() -> str:
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
-# ---- /start ----
 @dp.message(CommandStart())
 async def start(message: types.Message):
-    text = message.text or ""
-    parts = text.split()
-    if len(parts) > 1 and parts[1].startswith("deal"):
-        deal_id = parts[1][4:]
-        if deal_id not in deals:
-            await message.answer("❌ Сделка не найдена.")
-            return
-
-        deal = deals[deal_id]
-        if message.from_user.id == deal["seller_id"]:
-            await message.answer("❌ Вы не можете зайти в свою сделку как покупатель.")
-            return
-
-        deal["buyer_id"] = message.from_user.id
-        deal["buyer_username"] = message.from_user.username or str(message.from_user.id)
-
-        try:
-            await bot.send_message(
-                deal["seller_id"],
-                f"👤 Покупатель @{deal['buyer_username']} зашел в вашу сделку №{deal_id}"
-            )
-        except Exception:
-            pass
-
-        wallet_display = deal["wallet"] if deal["currency"] != "Stars" else "@PlayerokOTC"
-        stars_note = ""
-        if deal["currency"] == "Stars":
-            stars_note = "Способ передачи: Передавайте подарки по 100 Stars\n"
-
-        buyer_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"buyer_confirm_{deal_id}")],
-            [types.InlineKeyboardButton(text="🚪 Выйти из сделки", callback_data=f"buyer_exit_{deal_id}")]
-        ])
-
-        await message.answer(
-            f"💳 Информация о сделке #{deal_id}\n\n"
-            f"👤 Вы покупатель в сделке.\n"
-            f"📌 Продавец: @{deal['seller_username']} ({deal['seller_id']})\n"
-            f"• Вы покупаете: {deal['desc']}\n\n"
-            f"🏦 Адрес для оплаты: {wallet_display}\n"
-            f"{stars_note}"
-            f"💰 Сумма к оплате: {deal['amount']} {deal['currency']}\n"
-            f"📝 Комментарий к платежу(мемо): {deal['memo']}\n\n"
-            f"⚠️ Пожалуйста, убедитесь в правильности данных перед оплатой.",
-            reply_markup=buyer_kb
-        )
-        return
-
     await message.answer(
-        "Добро пожаловать в PlayerokOTC – надежный P2P-гарант\n\n"
-        "💼 Покупайте и продавайте всё, что угодно – безопасно с минимальной комиссией!\n"
-        "Выберите нужный раздел ниже:",
+        "Добро пожаловать в PlayerokOTC!\nВыберите нужный раздел ниже:",
         reply_markup=main_kb
     )
 
@@ -117,18 +64,13 @@ async def set_currency(message: types.Message, state: FSMContext):
     if chosen not in allowed:
         await message.answer("❌ Выберите валюту только из предложенного списка.")
         return
-
     if chosen == "Stars":
         user_wallets[message.from_user.id] = {"currency": "Stars", "wallet": "@PlayerokOTC"}
         await message.answer("✅ Валюта установлена: Stars", reply_markup=main_kb)
         await state.clear()
         return
-
     await state.update_data(currency=chosen)
-    await message.answer(
-        f"✅ Валюта вашего кошелька установлена: {chosen}\nВведите реквизиты вашего кошелька:",
-        reply_markup=types.ReplyKeyboardRemove()
-    )
+    await message.answer(f"Введите реквизиты вашего кошелька для {chosen}:", reply_markup=types.ReplyKeyboardRemove())
     await state.set_state(DealStates.waiting_wallet)
 
 @dp.message(DealStates.waiting_wallet)
@@ -149,13 +91,12 @@ async def create_deal(message: types.Message, state: FSMContext):
 
 @dp.message(DealStates.waiting_amount)
 async def deal_amount(message: types.Message, state: FSMContext):
-    text = message.text.strip()
-    if not text.isdigit():
+    if not message.text.isdigit():
         await message.answer("❌ Введите сумму только цифрами.")
         return
-    await state.update_data(amount=text)
+    await state.update_data(amount=message.text.strip())
     currency = user_wallets[message.from_user.id]["currency"]
-    await message.answer(f"📝 Укажите, что вы предлагаете в этой сделке за {text} {currency}:")
+    await message.answer(f"📝 Укажите, что вы предлагаете в этой сделке за {message.text.strip()} {currency}:")
     await state.set_state(DealStates.waiting_description)
 
 @dp.message(DealStates.waiting_description)
@@ -165,10 +106,7 @@ async def deal_description(message: types.Message, state: FSMContext):
     amount = data.get("amount")
     desc = message.text.strip()
     wallet_info = user_wallets.get(user_id, {"currency": "USD", "wallet": "None"})
-
     deal_id = gen_deal_id()
-    memo = f"{deal_id}{user_id}"
-
     deals[deal_id] = {
         "seller_id": user_id,
         "seller_username": message.from_user.username or str(user_id),
@@ -176,22 +114,12 @@ async def deal_description(message: types.Message, state: FSMContext):
         "currency": wallet_info["currency"],
         "amount": amount,
         "desc": desc,
-        "memo": memo,
-        "buyer_id": None,
-        "buyer_username": None
+        "buyer_id": None
     }
-
     link = f"https://t.me/PlayerokOTC_Robot?start=deal{deal_id}"
-    await message.answer(
-        f"✅ Сделка создана!\n\n"
-        f"💰 Сумма: {amount} {wallet_info['currency']}\n"
-        f"📜 Описание: {desc}\n"
-        f"🔗 Ссылка для покупателя: {link}",
-        reply_markup=main_kb
-    )
+    await message.answer(f"✅ Сделка создана!\n💰 Сумма: {amount} {wallet_info['currency']}\n📜 Описание: {desc}\n🔗 Ссылка для покупателя: {link}", reply_markup=main_kb)
     await state.clear()
 
-# ================== Запуск ==================
 async def main():
     print("✅ Бот запущен...")
     await dp.start_polling(bot)
